@@ -280,5 +280,145 @@ elif page == "Patient Journeys":
         use_container_width=True,
     )
     st.caption("All data is synthetic. Individual patient identifiers are not displayed.")
+elif page == "Statistical Modeling":
+    st.caption(
+        "Exploratory Poisson regression and segment-level comparisons from synthetic Synthea data. "
+        "These results are associations, not treatment effects or clinical predictions."
+    )
+    try:
+        coefficients = load_s3_dataset("curated/model_coefficients/")
+        diagnostics = load_s3_dataset("curated/model_diagnostics/")
+        segments = load_s3_dataset("curated/segment_summary/")
+    except Exception as exc:
+        st.error("Could not load statistical modeling results from AWS S3.")
+        st.code(str(exc))
+        st.stop()
+
+    if diagnostics.empty:
+        st.warning("The model diagnostics dataset is empty.")
+        st.stop()
+    d = diagnostics.iloc[0]
+    st.subheader("Model overview")
+    st.write(f"**Model:** {d['model_family']} | **Link:** {d['link']} | **Outcome:** {d['outcome']}")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Input cohort patients", f"{int(d['input_cohort_patients']):,}")
+    c2.metric("Adults in model with complete windows", f"{int(d['adult_complete_window_model_patients']):,}")
+    c3.metric("Mean post-index encounters", f"{float(d['mean_post_encounters']):.2f}")
+    c4.metric("Pearson dispersion", f"{float(d['pearson_dispersion']):.2f}")
+    if bool(d["overdispersion_flag"]):
+        st.warning(
+            "Overdispersion was flagged. Poisson standard errors, confidence intervals "
+            "and exploratory p-values may not be reliable; interpret inferential results cautiously."
+        )
+
+    st.subheader("Model effects: incidence rate ratios")
+    st.caption(
+        "An incidence rate ratio (IRR) above 1 indicates a higher modeled encounter rate; "
+        "below 1 indicates a lower rate, conditional on the other model terms. "
+        "Intervals are displayed as stored in the AWS model outputs."
+    )
+    coefficient_fields = [
+        "term", "incidence_rate_ratio", "irr_ci95_lower", "irr_ci95_upper",
+        "coefficient_log_rate", "standard_error", "p_value_exploratory",
+        "uncertainty_method", "reference_group",
+    ]
+    coeff = coefficients[coefficient_fields].copy()
+    for col in (
+        "incidence_rate_ratio", "irr_ci95_lower", "irr_ci95_upper",
+        "coefficient_log_rate", "standard_error", "p_value_exploratory",
+    ):
+        coeff[col] = pd.to_numeric(coeff[col], errors="coerce")
+    plotted = coeff.dropna(subset=["term", "incidence_rate_ratio", "irr_ci95_lower", "irr_ci95_upper"]).copy()
+    plotted = plotted[
+        (plotted["incidence_rate_ratio"] > 0)
+        & (plotted["irr_ci95_lower"] > 0)
+        & (plotted["irr_ci95_upper"] >= plotted["incidence_rate_ratio"])
+        & (plotted["incidence_rate_ratio"] >= plotted["irr_ci95_lower"])
+    ]
+    if not plotted.empty:
+        import plotly.graph_objects as go
+        plotted = plotted.sort_values("incidence_rate_ratio")
+        figure = go.Figure()
+        figure.add_trace(go.Scatter(
+            x=plotted["incidence_rate_ratio"],
+            y=plotted["term"].astype(str),
+            mode="markers",
+            marker={"size": 11},
+            error_x={
+                "type": "data", "symmetric": False,
+                "array": (plotted["irr_ci95_upper"] - plotted["incidence_rate_ratio"]).tolist(),
+                "arrayminus": (plotted["incidence_rate_ratio"] - plotted["irr_ci95_lower"]).tolist(),
+            },
+            name="IRR and reported 95% interval",
+        ))
+        figure.add_vline(x=1, line_dash="dash", line_color="gray")
+        figure.update_layout(
+            title="Modeled encounter rate ratios with reported 95% intervals",
+            xaxis_title="Incidence rate ratio (IRR)",
+            yaxis_title="Model term",
+            height=max(350, 90 + len(plotted) * 48),
+        )
+        st.plotly_chart(figure, use_container_width=True)
+    else:
+        st.info("No plottable coefficient intervals are available.")
+    st.dataframe(
+        coeff.rename(columns={
+            "term": "Model term", "incidence_rate_ratio": "IRR",
+            "irr_ci95_lower": "95% CI lower", "irr_ci95_upper": "95% CI upper",
+            "coefficient_log_rate": "Log-rate coefficient", "standard_error": "Standard error",
+            "p_value_exploratory": "Exploratory p-value",
+            "uncertainty_method": "Uncertainty method", "reference_group": "Reference group",
+        }),
+        hide_index=True,
+        use_container_width=True,
+    )
+
+    st.subheader("Model diagnostics")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Observed zero fraction", f"{float(d['observed_zero_fraction']):.1%}")
+    c2.metric("Poisson expected zero fraction", f"{float(d['poisson_expected_zero_fraction']):.1%}")
+    c3.metric("Residual degrees of freedom", f"{int(d['residual_degrees_of_freedom']):,}")
+    diag_view = pd.DataFrame({
+        "Metric": ["Deviance", "Pearson chi-square", "Pearson dispersion"],
+        "Value": [float(d["deviance"]), float(d["pearson_chi_square"]), float(d["pearson_dispersion"])],
+    })
+    st.dataframe(diag_view, hide_index=True, use_container_width=True)
+    st.caption("Stored modeling limitations: " + str(d["interpretation_limitations"]))
+
+    st.subheader("Utilization and costs by number of conditions")
+    segment_metrics = {
+        "Mean encounters per patient": ("mean_pre_encounters_180d", "mean_post_encounters_180d"),
+        "Mean encounter claim cost ($)": ("mean_pre_claim_cost_180d", "mean_post_claim_cost_180d"),
+    }
+    metric = st.selectbox("Compare model segments", list(segment_metrics), key="model_segment_metric")
+    pre, post = segment_metrics[metric]
+    segment_chart = segments[["disease_count", "patient_count", pre, post]].copy()
+    for column in [pre, post]:
+        segment_chart[column] = pd.to_numeric(segment_chart[column], errors="coerce")
+    segment_chart["Conditions"] = segment_chart["disease_count"].astype(str)
+    segment_long = segment_chart.melt(
+        id_vars=["Conditions", "patient_count"], value_vars=[pre, post],
+        var_name="Period", value_name="Average",
+    )
+    segment_long["Period"] = segment_long["Period"].map({
+        pre: "180 days before", post: "180 days after",
+    })
+    fig_segment = px.bar(
+        segment_long, x="Conditions", y="Average", color="Period", barmode="group",
+        title=metric + " by number of chronic conditions",
+        labels={"Conditions": "Number of conditions"},
+    )
+    st.plotly_chart(fig_segment, use_container_width=True)
+    st.dataframe(
+        segment_chart.rename(columns={
+            "disease_count": "Number of conditions", "patient_count": "Patients",
+            pre: "Mean before", post: "Mean after",
+        })[["Number of conditions", "Patients", "Mean before", "Mean after"]],
+        hide_index=True, use_container_width=True,
+    )
+    st.caption(
+        "Results are based entirely on synthetic records. Comparisons are observational; "
+        "the model does not establish causation or demonstrate real-world clinical validity."
+    )
 else:
     st.info("This dashboard section is under development. Curated AWS data will be connected next.")
