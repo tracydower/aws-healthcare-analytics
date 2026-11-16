@@ -60,6 +60,7 @@ if page in ("Executive Overview", "Chronic Disease Cohorts"):
         df = load_cohort_data()
     except Exception as exc:
         st.error("Could not load the cohort summary from AWS S3.")
+        st.code(str(exc))
         st.caption(f"Error type: {type(exc).__name__}. Check Streamlit secrets and the IAM user's S3 read permissions.")
         st.stop()
 
