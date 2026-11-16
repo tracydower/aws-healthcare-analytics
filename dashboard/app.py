@@ -420,5 +420,101 @@ elif page == "Statistical Modeling":
         "Results are based entirely on synthetic records. Comparisons are observational; "
         "the model does not establish causation or demonstrate real-world clinical validity."
     )
+elif page == "Provider Entity Resolution":
+    st.caption(
+        "Synthetic provider entity-resolution demonstration. Model performance was measured on "
+        "synthetically generated match labels, not validated provider identities. "
+        "All candidate matches require human verification."
+    )
+    try:
+        candidates = load_s3_dataset("curated/provider_entity_resolution/review_candidates/")
+        evaluation = load_s3_dataset("curated/provider_entity_resolution/synthetic_evaluation/")
+    except Exception as exc:
+        st.error("Could not load provider entity-resolution results from AWS S3.")
+        st.code(str(exc))
+        st.stop()
+    if candidates.empty or evaluation.empty:
+        st.warning("The provider candidate or synthetic evaluation dataset is empty.")
+        st.stop()
+
+    eval_row = evaluation.iloc[0]
+    st.subheader("Synthetic evaluation")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Precision", f"{float(eval_row['precision']):.1%}")
+    m2.metric("Recall", f"{float(eval_row['recall']):.1%}")
+    m3.metric("F1 score", f"{float(eval_row['f1']):.1%}")
+    m4.metric("ROC AUC", f"{float(eval_row['roc_auc']):.1%}")
+    st.caption(
+        f"Evaluation threshold: {float(eval_row['threshold']):.2f}. "
+        f"Synthetic provider records: {int(eval_row['providers']):,}. "
+        "These synthetic test metrics do not establish accuracy on real-world records."
+    )
+    if pd.notna(eval_row.get("note")):
+        st.caption("Evaluation note: " + str(eval_row["note"]))
+    confusion = pd.DataFrame({
+        "Predicted": ["Match", "Non-match", "Match", "Non-match"],
+        "Actual": ["Match", "Match", "Non-match", "Non-match"],
+        "Pairs": [int(eval_row["tp"]), int(eval_row["fn"]),
+                  int(eval_row["fp"]), int(eval_row["tn"])],
+    })
+    fig_conf = px.bar(
+        confusion, x="Actual", y="Pairs", color="Predicted", barmode="group",
+        text="Pairs", title="Synthetic evaluation: confusion matrix counts"
+    )
+    st.plotly_chart(fig_conf, use_container_width=True)
+
+    st.subheader("Unverified provider match candidates")
+    st.warning(
+        "UNVERIFIED_CANDIDATE_ONLY: A high similarity score is not proof that two "
+        "records represent the same provider. Matching names or addresses can belong "
+        "to different people, organizations, or specialties. Human review is required."
+    )
+    candidates = candidates.copy()
+    for col in ("match_probability", "name_similarity", "address_similarity",
+                "specialty_match", "city_match", "zip5_match"):
+        candidates[col] = pd.to_numeric(candidates[col], errors="coerce")
+    available_statuses = sorted(candidates["review_status"].dropna().astype(str).unique().tolist())
+    chosen_statuses = st.multiselect(
+        "Review status", available_statuses, default=available_statuses,
+        key="provider_review_status"
+    )
+    min_probability = st.slider(
+        "Minimum model match probability", min_value=0.0, max_value=1.0,
+        value=0.5, step=0.05, key="provider_min_probability"
+    )
+    filtered = candidates[
+        (candidates["match_probability"] >= min_probability)
+        & candidates["review_status"].astype(str).isin(chosen_statuses)
+    ].copy()
+    st.metric("Candidate pairs meeting filters", f"{len(filtered):,}")
+    if filtered.empty:
+        st.info("No unverified candidate pairs meet these filters.")
+    else:
+        fig_prob = px.histogram(
+            filtered, x="match_probability", nbins=20,
+            title="Model scores among unverified candidate pairs",
+            labels={"match_probability": "Match probability (model score)", "count": "Candidate pairs"},
+        )
+        fig_prob.update_layout(yaxis_title="Candidate pairs")
+        st.plotly_chart(fig_prob, use_container_width=True)
+        display_cols = [
+            "a_name", "b_name", "a_city", "b_city", "a_specialty", "b_specialty",
+            "match_probability", "name_similarity", "address_similarity",
+            "specialty_match", "review_status"
+        ]
+        display_names = {
+            "a_name": "Record A provider", "b_name": "Record B provider",
+            "a_city": "A city", "b_city": "B city",
+            "a_specialty": "A specialty", "b_specialty": "B specialty",
+            "match_probability": "Match probability", "name_similarity": "Name similarity",
+            "address_similarity": "Address similarity", "specialty_match": "Specialty match",
+            "review_status": "Review status"
+        }
+        st.dataframe(
+            filtered.sort_values("match_probability", ascending=False)[display_cols]
+            .rename(columns=display_names).head(250),
+            hide_index=True, use_container_width=True,
+        )
+        st.caption("Showing up to 250 synthetic, unverified candidate pairs. No records are automatically merged.")
 else:
-    st.info("This dashboard section is under development. Curated AWS data will be connected next.")
+    st.info("This dashboard section is under development.")
