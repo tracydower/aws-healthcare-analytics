@@ -286,9 +286,9 @@ elif page == "Statistical Modeling":
         "These results are associations, not treatment effects or clinical predictions."
     )
     try:
-        coefficients = load_s3_dataset("curated/model_coefficients/")
-        diagnostics = load_s3_dataset("curated/model_diagnostics/")
-        segments = load_s3_dataset("curated/segment_summary/")
+        coefficients = load_s3_dataset("curated/statistical_analysis/model_coefficients/")
+        diagnostics = load_s3_dataset("curated/statistical_analysis/model_diagnostics/")
+        segments = load_s3_dataset("curated/statistical_analysis/segment_summary/")
     except Exception as exc:
         st.error("Could not load statistical modeling results from AWS S3.")
         st.code(str(exc))
