@@ -1,5 +1,6 @@
 # Public Streamlit dashboard for curated AWS healthcare analytics datasets.
 import io
+import json
 
 import boto3
 import pandas as pd
@@ -13,7 +14,7 @@ st.set_page_config(
 )
 
 
-# Retrieve approved synthetic Parquet datasets from S3, caching each for one hour.
+# Retrieve approved synthetic Parquet or JSON datasets from S3, caching each for one hour.
 @st.cache_data(ttl=3600, show_spinner="Loading healthcare analytics data from AWS...")
 def load_s3_dataset(prefix):
     aws = st.secrets["aws"]
@@ -27,11 +28,19 @@ def load_s3_dataset(prefix):
     paginator = s3.get_paginator("list_objects_v2")
     for response in paginator.paginate(Bucket=aws["bucket"], Prefix=prefix):
         for obj in response.get("Contents", []):
-            if obj["Key"].endswith(".parquet"):
-                result = s3.get_object(Bucket=aws["bucket"], Key=obj["Key"])
-                frames.append(pd.read_parquet(io.BytesIO(result["Body"].read())))
+            key = obj["Key"]
+            if not key.endswith((".parquet", ".json")):
+                continue
+            result = s3.get_object(Bucket=aws["bucket"], Key=key)
+            content = result["Body"].read()
+            if key.endswith(".parquet"):
+                frames.append(pd.read_parquet(io.BytesIO(content)))
+            else:
+                records = [json.loads(line) for line in content.decode("utf-8").splitlines() if line.strip()]
+                if records:
+                    frames.append(pd.DataFrame(records))
     if not frames:
-        raise FileNotFoundError(f"No Parquet files found at s3://{aws['bucket']}/{prefix}")
+        raise FileNotFoundError(f"No Parquet or JSON files found at s3://{aws['bucket']}/{prefix}")
     return pd.concat(frames, ignore_index=True)
 
 
