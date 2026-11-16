@@ -1,0 +1,50 @@
+
+# Ignore folders named ignore
+ignore/
+
+# Ignore files whose names start with ignore
+ignore*
+
+# Ignore files containing secrets (case variants)
+*secrets*
+*Secrets*
+*SECRETS*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Jupyter
+.ipynb_checkpoints/
+
+# AWS credentials and local configuration
+.aws/
+credentials
+*.pem
+*.key
+
+# Local data and generated models
+dashboard/data/
+ml/models/
+*.parquet
+*.pkl
+*.joblib
+
+# Logs and temporary files
+*.log
+*.tmp
+~$*
+
+# Streamlit credentials
+.streamlit/secrets.toml
+
+# Additional local files
+*.csv
+*.sqlite
+*.db
+.DS_Store
