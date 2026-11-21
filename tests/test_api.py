@@ -70,8 +70,35 @@ def test_batch_empty():
     assert response.status_code == 200
     assert response.json()["total_claims"] == 0
 
+# Verify malformed records are reported without rejecting the entire batch.
 def test_batch_invalid_schema():
     response = client.post("/api/v1/validate/claims", json=[
         {"claim_id": "C004", "service_date": "2025-06-15", "paid_amount": 100}
     ])
-    assert response.status_code == 422
+    assert response.status_code == 200
+    result = response.json()
+    assert result["total_claims"] == 1
+    assert result["invalid_claims"] == 1
+    assert result["results"][0]["row_number"] == 1
+    assert result["results"][0]["violations"][0]["rule_id"] == "SCHEMA_VALIDATION_ERROR"
+
+
+    # Verify valid, malformed, and warning-only claims are processed independently.
+def test_batch_record_isolation():
+    claims = [
+        {"claim_id": "C001", "patient_id": "P001", "service_date": "2025-06-15", "paid_amount": 100},
+        {"claim_id": "C002", "service_date": "2025-06-15", "paid_amount": 200},
+        {"claim_id": "C003", "patient_id": "P003", "service_date": "2025-06-15", "paid_amount": -50},
+        {"claim_id": "C004", "patient_id": "P004", "service_date": "2099-01-01", "paid_amount": 100}
+    ]
+    response = client.post("/api/v1/validate/claims", json=claims)
+    assert response.status_code == 200
+    result = response.json()
+    assert result["total_claims"] == 4
+    assert result["valid_claims"] == 2
+    assert result["invalid_claims"] == 2
+    assert result["warning_count"] == 1
+    assert [r["row_number"] for r in result["results"]] == [1, 2, 3, 4]
+    assert result["results"][1]["violations"][0]["rule_id"] == "SCHEMA_VALIDATION_ERROR"
+    assert result["results"][2]["violations"][0]["rule_id"] == "NEGATIVE_PAYMENT_REVIEW"
+    assert result["results"][3]["violations"][0]["rule_id"] == "FUTURE_SERVICE_DATE"
