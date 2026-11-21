@@ -97,8 +97,5 @@ jobs:
               --function-name "$FUNCTION"
           fi
 
-          aws lambda put-function-concurrency \
-            --function-name "$FUNCTION" \
-            --reserved-concurrent-executions 2
 
           echo "SUCCESS: Private healthcare API deployed to AWS Lambda."
