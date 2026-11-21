@@ -1,4 +1,4 @@
-# Test and package the Healthcare Data Quality API for AWS Lambda.
+# Test, package, and deploy the Healthcare Data Quality API to AWS Lambda.
 name: Healthcare API CI
 
 on:
@@ -8,9 +8,10 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
-  test-and-package:
+  test-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -44,3 +45,60 @@ jobs:
           name: healthcare-api-lambda
           path: healthcare-api-lambda.zip
           retention-days: 7
+
+      - name: Authenticate to AWS using OIDC
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::406833060888:role/github-actions-healthcare-api-deploy
+          aws-region: us-east-1
+
+      - name: Deploy private AWS Lambda function
+        shell: bash
+        run: |
+          set -euo pipefail
+          FUNCTION="healthcare-data-quality-api"
+          ROLE="arn:aws:iam::406833060888:role/healthcare-data-quality-api-lambda"
+
+          if aws lambda get-function --function-name "$FUNCTION" >/dev/null 2>&1; then
+            echo "Updating existing Lambda function"
+            aws lambda update-function-code \
+              --function-name "$FUNCTION" \
+              --zip-file fileb://healthcare-api-lambda.zip \
+              --no-cli-pager
+
+            aws lambda wait function-updated \
+              --function-name "$FUNCTION"
+
+            aws lambda update-function-configuration \
+              --function-name "$FUNCTION" \
+              --runtime python3.13 \
+              --handler api.lambda_handler.handler \
+              --memory-size 256 \
+              --timeout 15 \
+              --environment "Variables={AUDIT_S3_BUCKET=healthcare-analytics-td-2026}" \
+              --no-cli-pager
+
+            aws lambda wait function-updated \
+              --function-name "$FUNCTION"
+          else
+            echo "Creating private Lambda function"
+            aws lambda create-function \
+              --function-name "$FUNCTION" \
+              --runtime python3.13 \
+              --role "$ROLE" \
+              --handler api.lambda_handler.handler \
+              --zip-file fileb://healthcare-api-lambda.zip \
+              --memory-size 256 \
+              --timeout 15 \
+              --environment "Variables={AUDIT_S3_BUCKET=healthcare-analytics-td-2026}" \
+              --no-cli-pager
+
+            aws lambda wait function-active \
+              --function-name "$FUNCTION"
+          fi
+
+          aws lambda put-function-concurrency \
+            --function-name "$FUNCTION" \
+            --reserved-concurrent-executions 2
+
+          echo "SUCCESS: Private healthcare API deployed to AWS Lambda."

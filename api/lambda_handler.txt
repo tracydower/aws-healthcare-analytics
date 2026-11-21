@@ -1,0 +1,9 @@
+.py
+
+Paste:
+# AWS Lambda entry point for the Healthcare Data Quality FastAPI application.from mangum import Mangumfrom api.main import apphandler = Mangum(app, lifespan="off")
+
+
+
+This lets Lambda invoke the same FastAPI application you've already built and tested. We aren't duplicating the API or changing its validation logic.
+Step 3: Create separate API deployment
