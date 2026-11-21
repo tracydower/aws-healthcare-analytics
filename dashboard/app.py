@@ -388,7 +388,7 @@ elif page == "Statistical Modeling":
     c2.metric("Poisson expected zero fraction", f"{float(d['poisson_expected_zero_fraction']):.1%}")
     c3.metric("Residual degrees of freedom", f"{int(d['residual_degrees_of_freedom']):,}")
     diag_view = pd.DataFrame({
-        "Metric": ["Deviance", "Pearson chi-square", "Pearson dispersion"],
+        "Metric": ["Deviance", "Pearson Chi-Square", "Pearson Dispersion"],
         "Value": [float(d["deviance"]), float(d["pearson_chi_square"]), float(d["pearson_dispersion"])],
     })
     st.dataframe(diag_view, hide_index=True, use_container_width=True)

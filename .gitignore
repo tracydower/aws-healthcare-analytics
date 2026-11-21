@@ -48,3 +48,5 @@ ml/models/
 *.sqlite
 *.db
 .DS_Store
+
+dashboard/logs/
