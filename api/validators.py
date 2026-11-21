@@ -21,30 +21,36 @@ class ValidationResult(BaseModel):
     valid: bool
     violations: list[Violation]
 
-DEFAULT_SEVERITIES: dict[str, Severity] = {
-    "NEGATIVE_PAYMENT_REVIEW": "warning",
-    "FUTURE_SERVICE_DATE": "error"
-}
-
+ 
+# Apply configurable validation rules to a healthcare claim.
 def validate_claim_record(
     claim: Claim,
     severities: dict[str, Severity] | None = None
 ) -> ValidationResult:
-    config = DEFAULT_SEVERITIES | (severities or {})
+    from api.rule_config import load_rules
+
+    rules = load_rules()
+    if severities:
+        for rule_id, severity in severities.items():
+            if rule_id in rules:
+                rules[rule_id].severity = severity
+
     violations = []
 
-    if claim.paid_amount < 0:
+    negative_rule = rules["NEGATIVE_PAYMENT_REVIEW"]
+    if negative_rule.enabled and claim.paid_amount < negative_rule.threshold:
         violations.append(Violation(
             rule_id="NEGATIVE_PAYMENT_REVIEW",
-            severity=config["NEGATIVE_PAYMENT_REVIEW"],
+            severity=negative_rule.severity,
             field="paid_amount",
             message="Negative payment may represent an adjustment or recoupment."
         ))
 
-    if claim.service_date > date.today():
+    future_rule = rules["FUTURE_SERVICE_DATE"]
+    if future_rule.enabled and claim.service_date > date.today():
         violations.append(Violation(
             rule_id="FUTURE_SERVICE_DATE",
-            severity=config["FUTURE_SERVICE_DATE"],
+            severity=future_rule.severity,
             field="service_date",
             message="Service date cannot be in the future."
         ))
@@ -53,3 +59,5 @@ def validate_claim_record(
         valid=not any(v.severity == "error" for v in violations),
         violations=violations
     )
+
+ 

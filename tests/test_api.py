@@ -102,3 +102,39 @@ def test_batch_record_isolation():
     assert result["results"][1]["violations"][0]["rule_id"] == "SCHEMA_VALIDATION_ERROR"
     assert result["results"][2]["violations"][0]["rule_id"] == "NEGATIVE_PAYMENT_REVIEW"
     assert result["results"][3]["violations"][0]["rule_id"] == "FUTURE_SERVICE_DATE"
+
+
+    # Verify rule configuration controls severity and enabled status.
+from unittest.mock import patch
+from api.rule_config import RuleSettings
+
+def test_configurable_severity():
+    rules = {
+        "NEGATIVE_PAYMENT_REVIEW": RuleSettings(enabled=True, severity="error", threshold=0),
+        "FUTURE_SERVICE_DATE": RuleSettings(enabled=True, severity="error")
+    }
+    with patch("api.rule_config.load_rules", return_value=rules):
+        response = client.post("/api/v1/validate/claim", json={
+            "claim_id": "C005",
+            "patient_id": "P005",
+            "service_date": "2025-06-15",
+            "paid_amount": -50
+        })
+    assert response.status_code == 200
+    assert response.json()["valid"] is False
+    assert response.json()["violations"][0]["severity"] == "error"
+
+def test_disabled_rule():
+    rules = {
+        "NEGATIVE_PAYMENT_REVIEW": RuleSettings(enabled=False, severity="warning", threshold=0),
+        "FUTURE_SERVICE_DATE": RuleSettings(enabled=True, severity="error")
+    }
+    with patch("api.rule_config.load_rules", return_value=rules):
+        response = client.post("/api/v1/validate/claim", json={
+            "claim_id": "C006",
+            "patient_id": "P006",
+            "service_date": "2025-06-15",
+            "paid_amount": -50
+        })
+    assert response.status_code == 200
+    assert response.json() == {"valid": True, "violations": []}

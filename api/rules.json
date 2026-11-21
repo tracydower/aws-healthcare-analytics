@@ -1,0 +1,11 @@
+{
+  "NEGATIVE_PAYMENT_REVIEW": {
+    "enabled": true,
+    "severity": "warning",
+    "threshold": 0
+  },
+  "FUTURE_SERVICE_DATE": {
+    "enabled": true,
+    "severity": "error"
+  }
+}
