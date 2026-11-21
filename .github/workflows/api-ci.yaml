@@ -1,0 +1,46 @@
+# Test and package the Healthcare Data Quality API for AWS Lambda.
+name: Healthcare API CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install -r api/requirements.txt
+          python -m pip install pytest httpx
+
+      - name: Run automated tests
+        run: python -m pytest tests/ -v
+
+      - name: Build Lambda deployment package
+        run: |
+          mkdir -p build
+          python -m pip install -r api/requirements.txt -t build/
+          cp -r api build/
+          cd build
+          zip -qr ../healthcare-api-lambda.zip .
+
+      - name: Upload Lambda package
+        uses: actions/upload-artifact@v4
+        with:
+          name: healthcare-api-lambda
+          path: healthcare-api-lambda.zip
+          retention-days: 7
