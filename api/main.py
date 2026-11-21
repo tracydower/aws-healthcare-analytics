@@ -1,6 +1,7 @@
 # FastAPI endpoints for reusable healthcare data-quality validation.
 from fastapi import FastAPI
 from api.validators import Claim, Violation, ValidationResult, validate_claim_record
+from api.audit import log_validation_run
 
 app = FastAPI(
     title="Healthcare Data Quality API",
@@ -25,15 +26,18 @@ class BatchRecordResult(BaseModel):
     violations: list[Violation]
 
 class BatchValidationResult(BaseModel):
+    run_id: str
     total_claims: int
     valid_claims: int
     invalid_claims: int
     warning_count: int
     results: list[BatchRecordResult]
 
+# Validate each claim independently and record an auditable batch execution.
 @app.post("/api/v1/validate/claims", response_model=BatchValidationResult)
 def validate_claims(claims: list[dict]):
     results = []
+
     for row_number, raw_claim in enumerate(claims, start=1):
         try:
             claim = Claim.model_validate(raw_claim)
@@ -59,14 +63,29 @@ def validate_claims(claims: list[dict]):
                 violations=violations
             ))
 
+    total = len(results)
+    valid = sum(r.valid for r in results)
+    invalid = total - valid
+    warnings = sum(
+        v.severity == "warning"
+        for result in results
+        for v in result.violations
+    )
+
+    # Record the execution and capture the generated audit identifier.
+    run_id = log_validation_run(
+        total=total,
+        valid=valid,
+        invalid=invalid,
+        warnings=warnings
+    )
+
     return BatchValidationResult(
-        total_claims=len(results),
-        valid_claims=sum(r.valid for r in results),
-        invalid_claims=sum(not r.valid for r in results),
-        warning_count=sum(
-            v.severity == "warning"
-            for r in results
-            for v in r.violations
-        ),
+        run_id=run_id,
+        total_claims=total,
+        valid_claims=valid,
+        invalid_claims=invalid,
+        warning_count=warnings,
         results=results
     )
+

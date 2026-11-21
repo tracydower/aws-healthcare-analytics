@@ -138,3 +138,26 @@ def test_disabled_rule():
         })
     assert response.status_code == 200
     assert response.json() == {"valid": True, "violations": []}
+
+
+# Verify that the batch API returns a traceable audit run ID.
+def test_batch_returns_audit_run_id():
+    from uuid import UUID
+
+    response = client.post("/api/v1/validate/claims", json=[
+        {
+            "claim_id": "C100",
+            "patient_id": "P100",
+            "service_date": "2025-06-15",
+            "paid_amount": 100
+        }
+    ])
+
+    assert response.status_code == 200
+    result = response.json()
+    assert "run_id" in result
+    UUID(result["run_id"])
+    assert result["total_claims"] == 1
+    assert result["valid_claims"] == 1
+
+    
