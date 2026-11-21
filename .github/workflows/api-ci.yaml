@@ -75,7 +75,7 @@ jobs:
               --handler api.lambda_handler.handler \
               --memory-size 256 \
               --timeout 15 \
-              --environment "Variables={AUDIT_S3_BUCKET=healthcare-analytics-td-2026}" \
+              --environment "Variables={AUDIT_S3_BUCKET=healthcare-analytics-td-2026,CLOUDWATCH_METRICS_ENABLED=true}" \
               --no-cli-pager
 
             aws lambda wait function-updated \
@@ -90,7 +90,7 @@ jobs:
               --zip-file fileb://healthcare-api-lambda.zip \
               --memory-size 256 \
               --timeout 15 \
-              --environment "Variables={AUDIT_S3_BUCKET=healthcare-analytics-td-2026}" \
+              --environment "Variables={AUDIT_S3_BUCKET=healthcare-analytics-td-2026,CLOUDWATCH_METRICS_ENABLED=true}" \
               --no-cli-pager
 
             aws lambda wait function-active \
@@ -99,3 +99,4 @@ jobs:
 
 
           echo "SUCCESS: Private healthcare API deployed to AWS Lambda."
+

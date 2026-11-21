@@ -1,4 +1,5 @@
-# Generate structured audit events and optionally persist them to Amazon S3.
+
+# Log claim-validation audit events to CloudWatch Logs, S3, and custom CloudWatch metrics.
 import json
 import logging
 import os
@@ -17,6 +18,36 @@ if not logger.handlers:
     handler.setFormatter(logging.Formatter("%(message)s"))
     logger.addHandler(handler)
 
+def publish_cloudwatch_metrics(event: dict, timestamp: datetime) -> None:
+    if os.getenv("CLOUDWATCH_METRICS_ENABLED", "false").lower() != "true":
+        return
+
+    metrics = {
+        "ClaimsProcessed": "total_records",
+        "ValidClaims": "valid_records",
+        "InvalidClaims": "invalid_records",
+        "ValidationWarnings": "warning_count"
+    }
+
+    try:
+        boto3.client("cloudwatch").put_metric_data(
+            Namespace="Healthcare/DataQuality",
+            MetricData=[
+                {
+                    "MetricName": name,
+                    "Dimensions": [
+                        {"Name": "FunctionName", "Value": "healthcare-data-quality-api"}
+                    ],
+                    "Timestamp": timestamp,
+                    "Value": event[field],
+                    "Unit": "Count"
+                }
+                for name, field in metrics.items()
+            ]
+        )
+    except Exception:
+        logger.exception("CloudWatch metric publishing failed")
+
 def log_validation_run(total: int, valid: int, invalid: int, warnings: int) -> str:
     run_id = str(uuid4())
     timestamp = datetime.now(timezone.utc)
@@ -31,10 +62,8 @@ def log_validation_run(total: int, valid: int, invalid: int, warnings: int) -> s
         "warning_count": warnings
     }
 
-    # Preserve structured console logging.
     logger.info(json.dumps(event))
 
-    # Persist to S3 only when a bucket is configured.
     bucket = os.getenv("AUDIT_S3_BUCKET")
     if bucket:
         key = (
@@ -48,5 +77,7 @@ def log_validation_run(total: int, valid: int, invalid: int, warnings: int) -> s
             ContentType="application/json",
             ServerSideEncryption="AES256"
         )
+
+    publish_cloudwatch_metrics(event, timestamp)
 
     return run_id
